@@ -220,10 +220,21 @@
             statusMessage.innerText = 'Creating room...';
         });
 
-        document.getElementById('join-btn').addEventListener('click', async () => {
-            roomId = document.getElementById('room-input').value.trim().toUpperCase();
-            if(roomId.length !== 5) return statusMessage.innerText = 'Code must be 5 chars.';
+document.getElementById('join-btn').addEventListener('click', async () => {
+            const inputVal = document.getElementById('room-input').value.trim().toUpperCase();
+            
+            if(inputVal.length !== 5) {
+                statusMessage.innerText = 'Code must be 5 chars.';
+                return;
+            }
+
+            // 1. Lock in the roomId globally first
+            roomId = inputVal; 
+            
+            // 2. Generate the key (Wait for it to finish!)
             await CryptoManager.generateKey(roomId);
+            
+            // 3. NOW tell the server we want to join
             socket.emit('join-room', roomId);
             statusMessage.innerText = 'Connecting...';
         });

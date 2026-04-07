@@ -19,12 +19,13 @@ io.on('connection', (socket) => {
     const ipAddress = socket.handshake.address;
     console.log('A user connected:', ipAddress);
 
-    socket.on('join-room', async (roomId) => {
+socket.on('join-room', async (roomId) => {
         try {
-            // Consume 1 point for the IP address
             await rateLimiter.consume(ipAddress);
 
-            const room = io.sockets.adapter.rooms.get(roomId);
+            // Get all rooms and check specifically for the one the user wants
+            const rooms = io.sockets.adapter.rooms;
+            const room = rooms.get(roomId);
             const numClients = room ? room.size : 0;
 
             if (numClients === 0) {
@@ -40,10 +41,8 @@ io.on('connection', (socket) => {
                 socket.emit('room-full');
             }
         } catch (rejRes) {
-            // This block runs if the rate limit is hit
             const secsLeft = Math.round(rejRes.msBeforeNext / 1000) || 1;
             socket.emit('status-message', `Too many attempts. Try again in ${Math.ceil(secsLeft / 60)} mins.`);
-            console.log(`Rate limit blocked IP: ${ipAddress}`);
         }
     });
 
