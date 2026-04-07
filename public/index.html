@@ -206,7 +206,27 @@
             }
         };
 
-        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        // --- UPDATED WEBRTC CONFIGURATION (WITH TURN) ---
+const configuration = { 
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' }, // Free STUN 
+        {
+            urls: "turn:global.relay.metered.ca:80",
+            username: "37a990e8518686af9e0b85d9",
+            credential: "1/eM/Od940yhwevK"
+        },
+        {
+            urls: "turn:global.relay.metered.ca:443",
+            username: "37a990e8518686af9e0b85d9",
+            credential: "1/eM/Od940yhwevK"
+        },
+        {
+            urls: "turn:global.relay.metered.ca:443?transport=tcp",
+            username: "37a990e8518686af9e0b85d9",
+            credential: "1/eM/Od940yhwevK"
+        }
+    ] 
+}; 
 
         // --- ROOM MANAGEMENT ---
         function generateCode() {
