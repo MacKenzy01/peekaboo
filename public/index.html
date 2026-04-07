@@ -50,7 +50,6 @@
         .code-badge { background: #1a1a1a; border: 1px solid #333; color: #00ffcc; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 1.1rem; letter-spacing: 3px; cursor: pointer; transition: all 0.2s ease; user-select: none; }
         .code-badge:active { transform: scale(0.95); background: #333; }
 
-        /* --- NEW: COPY POPUP TOOLTIP --- */
         .copy-popup { position: absolute; top: 65px; right: 20px; background: #262626; color: #fff; padding: 8px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; border: 1px solid #333; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 20; opacity: 0; pointer-events: none; transition: all 0.3s ease; transform: translateY(-10px); }
         .copy-popup.show { opacity: 1; transform: translateY(0); }
         .copy-popup::after { content: ''; position: absolute; top: -6px; right: 30px; width: 10px; height: 10px; background: #262626; border-top: 1px solid #333; border-left: 1px solid #333; transform: rotate(45deg); }
@@ -135,6 +134,14 @@
     <script>
         const socket = io();
 
+        // --- NEW: THE WAKE-UP FIX ---
+        socket.on('connect', () => {
+            if (roomId && !chatScreen.classList.contains('hidden')) {
+                console.log("Woke up! Rejoining room...");
+                socket.emit('join-room', roomId);
+            }
+        });
+
         // UI Elements
         const landingScreen = document.getElementById('landing-screen');
         const enterAppBtn = document.getElementById('enter-app-btn');
@@ -144,7 +151,7 @@
         const chatContainer = document.getElementById('chat-container');
         const messageInput = document.getElementById('message-input');
         const roomDisplayCode = document.getElementById('room-display-code');
-        const copyPopup = document.getElementById('copy-popup'); // NEW
+        const copyPopup = document.getElementById('copy-popup');
         
         // Modal Elements
         const imageModal = document.getElementById('image-modal');
@@ -155,6 +162,7 @@
         let peerConnection;
         let dataChannel;
         let roomId;
+        let iceCandidatesQueue = []; // --- ICE QUEUE FIX ---
 
         // Landing Page Transition
         enterAppBtn.addEventListener('click', () => {
@@ -169,7 +177,6 @@
                 const originalText = roomDisplayCode.innerText;
                 roomDisplayCode.innerText = 'COPIED!';
                 roomDisplayCode.style.color = '#fff';
-                // Hide the tooltip if they clicked it early
                 copyPopup.classList.remove('show');
                 setTimeout(() => {
                     roomDisplayCode.innerText = originalText;
@@ -207,26 +214,26 @@
         };
 
         // --- UPDATED WEBRTC CONFIGURATION (WITH TURN) ---
-const configuration = { 
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }, // Free STUN 
-        {
-            urls: "turn:global.relay.metered.ca:80",
-            username: "37a990e8518686af9e0b85d9",
-            credential: "1/eM/Od940yhwevK"
-        },
-        {
-            urls: "turn:global.relay.metered.ca:443",
-            username: "37a990e8518686af9e0b85d9",
-            credential: "1/eM/Od940yhwevK"
-        },
-        {
-            urls: "turn:global.relay.metered.ca:443?transport=tcp",
-            username: "37a990e8518686af9e0b85d9",
-            credential: "1/eM/Od940yhwevK"
-        }
-    ] 
-}; 
+        const configuration = { 
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }, 
+                {
+                    urls: "turn:global.relay.metered.ca:80",
+                    username: "37a990e8518686af9e0b85d9",
+                    credential: "1/eM/Od940yhwevK"
+                },
+                {
+                    urls: "turn:global.relay.metered.ca:443",
+                    username: "37a990e8518686af9e0b85d9",
+                    credential: "1/eM/Od940yhwevK"
+                },
+                {
+                    urls: "turn:global.relay.metered.ca:443?transport=tcp",
+                    username: "37a990e8518686af9e0b85d9",
+                    credential: "1/eM/Od940yhwevK"
+                }
+            ] 
+        }; 
 
         // --- ROOM MANAGEMENT ---
         function generateCode() {
@@ -240,7 +247,7 @@ const configuration = {
             statusMessage.innerText = 'Creating room...';
         });
 
-document.getElementById('join-btn').addEventListener('click', async () => {
+        document.getElementById('join-btn').addEventListener('click', async () => {
             const inputVal = document.getElementById('room-input').value.trim().toUpperCase();
             
             if(inputVal.length !== 5) {
@@ -248,13 +255,8 @@ document.getElementById('join-btn').addEventListener('click', async () => {
                 return;
             }
 
-            // 1. Lock in the roomId globally first
             roomId = inputVal; 
-            
-            // 2. Generate the key (Wait for it to finish!)
             await CryptoManager.generateKey(roomId);
-            
-            // 3. NOW tell the server we want to join
             socket.emit('join-room', roomId);
             statusMessage.innerText = 'Connecting...';
         });
@@ -280,15 +282,19 @@ document.getElementById('join-btn').addEventListener('click', async () => {
             chatScreen.classList.remove('hidden');
             roomDisplayCode.innerText = roomId;
             
-            // --- NEW: Trigger the copy popup animation ---
             setTimeout(() => {
                 copyPopup.classList.add('show');
-                setTimeout(() => copyPopup.classList.remove('show'), 4000); // Fades out after 4 seconds
+                setTimeout(() => copyPopup.classList.remove('show'), 4000); 
             }, 500); 
         }
 
         // --- WEBRTC SETUP ---
         function initWebRTC(isInitiator) {
+            // --- NEW: KILL THE OLD GHOST TUNNEL ---
+            if (peerConnection) {
+                peerConnection.close();
+            }
+            
             peerConnection = new RTCPeerConnection(configuration);
 
             if (isInitiator) {
@@ -320,17 +326,34 @@ document.getElementById('join-btn').addEventListener('click', async () => {
             }
         }
 
+        // --- UPDATED ICE QUEUE SIGNALING ---
         socket.on('signal', async (signal) => {
             if (!peerConnection) return;
-            if (signal.type === 'offer') {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-                const answer = await peerConnection.createAnswer();
-                await peerConnection.setLocalDescription(answer);
-                socket.emit('signal', { room: roomId, signal: peerConnection.localDescription });
-            } else if (signal.type === 'answer') {
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
-            } else if (signal.type === 'candidate') {
-                await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            try {
+                if (signal.type === 'offer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    socket.emit('signal', { room: roomId, signal: peerConnection.localDescription });
+                    
+                    while(iceCandidatesQueue.length) {
+                        await peerConnection.addIceCandidate(iceCandidatesQueue.shift());
+                    }
+                } else if (signal.type === 'answer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(signal));
+                    
+                    while(iceCandidatesQueue.length) {
+                        await peerConnection.addIceCandidate(iceCandidatesQueue.shift());
+                    }
+                } else if (signal.type === 'candidate') {
+                    if (peerConnection.remoteDescription) {
+                        await peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate));
+                    } else {
+                        iceCandidatesQueue.push(new RTCIceCandidate(signal.candidate));
+                    }
+                }
+            } catch (err) {
+                console.error("WebRTC Signal Error:", err);
             }
         });
 
@@ -446,7 +469,7 @@ document.getElementById('join-btn').addEventListener('click', async () => {
 
         socket.on('room-full', () => {
             statusMessage.innerText = 'This room is full (2/2). Try a different code.';
-            statusMessage.style.color = '#ff4d4d'; // Makes the error red
+            statusMessage.style.color = '#ff4d4d'; 
         });
 
         if ('serviceWorker' in navigator) {
